@@ -17,10 +17,12 @@ namespace ProcessTerminator
         static EventHandler _handler;
 
         // Fields
-        string[] _arguments;
-        string _processName;
-        Process[] _processes;
-        int _timeout;
+        private string[] _arguments;
+        private Process[] _processes;
+        private string _processName;
+        private string _programName;
+        private string _programArguments;
+        private int _timeout;
 
         enum CtrlType
         {
@@ -35,46 +37,17 @@ namespace ProcessTerminator
         {
             _arguments = args;
 
-            // Check syntax of arguments
-            if (!CheckArguments())
+            // Validate syntax of arguments
+            if (!ValidateArguments())
             {
-                Console.WriteLine("Usage: ProcessTerminator.exe -t <milliseconds> -n <process name> -p <program> \"[arguments]\"");
+                Console.WriteLine("Usage: ProcessTerminator.exe -t <milliseconds> -n <process name> -p <program> [arguments]");
                 return;
             }
 
             Initialize();
+            AddCloseEvent();
             RunProgram();
-
-            bool processFound = false;
-
-            do
-            {
-                // Search for all the processes with the given name
-                _processes = Process.GetProcessesByName(_processName);
-                processFound = _processes.Length != 0;
-
-                // Wait for some time before trying again
-                if (!processFound)
-                    Thread.Sleep(_timeout);
-            } while (!processFound);
-
-            try
-            {
-                Console.WriteLine("Waiting for {0} to exit", _processName);
-
-                foreach (Process process in _processes)
-                {
-                    //Console.WriteLine(@"{0} | ID: {1}", process.ProcessName, process.Id);
-                    process.WaitForExit();
-                }
-
-                Console.WriteLine("{0} has exited, putting the minigun back in the van and going back to HQ", _processName);
-            }
-            catch (Exception e)
-            {
-                // Nothing to do here
-            }
-
+            SearchProcess();
             Cleanup();
         }
 
@@ -85,42 +58,30 @@ namespace ProcessTerminator
             SetConsoleCtrlHandler(_handler, true);
         }
 
-        private bool CheckArguments()
-        {
-            if (_arguments.Length < 6)
-                return false;
-
-            if (_arguments[0] != "-t" && _arguments[2] != "-n" && _arguments[4] != "-p")
-                return false;
-
-            return true;
-        }
-
         private void Cleanup()
         {
+            Console.WriteLine("Shutting down");
+
             foreach (Process process in _processes)
-                process.Close();
+            {
+                if (!process.HasExited)
+                    process.Kill();
+            }
         }
 
         [DllImport("Kernel32")]
         private static extern bool SetConsoleCtrlHandler(EventHandler handler, bool add);
         private bool Handler(CtrlType sig)
         {
-            Console.WriteLine("{0}, you've just been erased :)", _processName);
-
             try
             {
                 // Kill the program
-                foreach (Process process in _processes)
-                {
-                    if (!process.HasExited)
-                        process.Kill();
-                }
+                Cleanup();
 
                 // Shutdown right away so there are no lingering threads
                 Environment.Exit(-1);
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 // Nothing to do here
             }
@@ -136,7 +97,8 @@ namespace ProcessTerminator
                 _timeout = DEFAULT_TIMEOUT;
 
             _processName = _arguments[3];
-            AddCloseEvent();
+            _programName = _arguments[5];
+            _programArguments = _arguments.Length > 6 ? _arguments[6] : "";
         }
 
         private void RunProgram()
@@ -145,47 +107,98 @@ namespace ProcessTerminator
 
             try
             {
-                proc.StartInfo.Arguments = _arguments.Length > 6 ? _arguments[6] : "";
-                proc.StartInfo.FileName = _arguments[5];
-                proc.StartInfo.WorkingDirectory = new FileInfo(_arguments[5]).DirectoryName;
+                if (_programArguments == "")
+                    Console.WriteLine("Running {0}", _programName);
+                else
+                    Console.WriteLine("Running {0} with the following arguments: {1}", _programName, _programArguments);
+
+                proc.StartInfo.Arguments = _programArguments;
+                proc.StartInfo.FileName = _programName;
+                proc.StartInfo.WorkingDirectory = new FileInfo(_programName).DirectoryName;
                 proc.Start();
             }
-            catch (SecurityException e)
+            catch (SecurityException)
             {
                 Console.WriteLine("The caller does not have the required permission.");
             }
-            catch (ArgumentException e)
+            catch (ArgumentException)
             {
-                Console.WriteLine("The file name is empty, contains only white spaces, or contains invalid characters: {0}", _arguments[5]);
+                Console.WriteLine("The file name is empty, contains only white spaces, or contains invalid characters: {0}", _programArguments);
             }
-            catch (UnauthorizedAccessException e)
+            catch (UnauthorizedAccessException)
             {
-                Console.WriteLine("Access to fileName is denied: {0}", _arguments[5]);
+                Console.WriteLine("Access to fileName is denied: {0}", _programArguments);
             }
-            catch (PathTooLongException e)
+            catch (PathTooLongException)
             {
-                Console.WriteLine("The specified path, file name, or both exceed the system-defined maximum length: {0}", _arguments[5]);
+                Console.WriteLine("The specified path, file name, or both exceed the system-defined maximum length: {0}", _programArguments);
             }
-            catch (NotSupportedException e)
+            catch (NotSupportedException)
             {
-                Console.WriteLine("File name contains a colon(:) in the middle of the string: {0}", _arguments[5]);
+                Console.WriteLine("File name contains a colon(:) in the middle of the string: {0}", _programArguments);
             }
-            catch (InvalidOperationException e)
+            catch (InvalidOperationException)
             {
                 Console.WriteLine("No file name was specified");
             }
-            catch (Win32Exception e)
+            catch (Win32Exception)
             {
-                Console.WriteLine("There was an error in opening the associated file: {0}", _arguments[5]);
+                Console.WriteLine("There was an error in opening the associated file: {0}", _programArguments);
             }
             catch (Exception e)
             {
-                Console.WriteLine("Unhandled exception");
+                Console.WriteLine("Unhandled exception: {0}", e.Message);
             }
             finally
             {
                 proc.Close();
             }
+        }
+
+        private void SearchProcess()
+        {
+            Console.WriteLine("Searching for the {0} process", _processName);
+            bool processFound = false;
+
+            do
+            {
+                // Search for all the processes with the given name
+                _processes = Process.GetProcessesByName(_processName);
+                processFound = _processes.Length != 0;
+
+                // Wait for some time before trying again
+                if (!processFound)
+                    Thread.Sleep(_timeout);
+            } while (!processFound);
+
+            try
+            {
+                Console.WriteLine("{0} process found", _processName);
+                Console.WriteLine("Waiting for {0} to exit", _processName);
+
+                foreach (Process process in _processes)
+                {
+                    //Console.WriteLine(@"{0} | ID: {1}", process.ProcessName, process.Id);
+                    process.WaitForExit();
+                }
+
+                Console.WriteLine("{0} has exited", _processName);
+            }
+            catch (Exception)
+            {
+                // Nothing to do here
+            }
+        }
+
+        private bool ValidateArguments()
+        {
+            if (_arguments.Length < 6)
+                return false;
+
+            if (_arguments[0] != "-t" && _arguments[2] != "-n" && _arguments[4] != "-p")
+                return false;
+
+            return true;
         }
     }
 }

@@ -7,3 +7,7 @@ It was made in C# using .NET 4.6.2 and Visual Studio 2017. You may need to insta
 -t <milliseconds>: time in milliseconds before searching for the process again  
 -n <process name>: name of the process to terminate  
 -p <program> [arguments]: path to the program to run at startup, with optional arguments
+
+Example:
+
+ProcessTerminator.exe -t 1000 -n Skype -p java "MyTool -check -verify logfile.out"
