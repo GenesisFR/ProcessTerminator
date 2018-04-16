@@ -1,28 +1,43 @@
-﻿using System;
+﻿using CommandLine;
+using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Threading;
 
 namespace ProcessTerminator
 {
+    //TODO add better process closing logic https://github.com/nachmore/toastify/blob/master/Toastify/Spotify.cs (see KillProc(string name))
+    class Options
+    {
+        [Option('n', "name", Required = true,
+            HelpText = "Name of the process to terminate.")]
+        public string Name { get; set; }
+
+        [Option('t', "timeout", Required = false, Default = 5000,
+          HelpText = "Time in milliseconds before searching for the process again.")]
+        public int Timeout { get; set; }
+
+        [Option('p', "program", Required = false, Min = 1, 
+            HelpText = "Path to the program to run at startup, with optional arguments.")]
+        public IEnumerable<string> Program { get; set; }
+    }
+
     class ProcessTerminator
     {
-        int DEFAULT_TIMEOUT = 5000;
-
         // Events
         private delegate bool EventHandler(CtrlType sig);
         static EventHandler _handler;
 
         // Fields
-        private string[] _arguments;
+        private Options _parsedArguments;
         private Process[] _processes;
-        private string _processName;
         private string _programName;
         private string _programArguments;
-        private int _timeout;
 
         enum CtrlType
         {
@@ -35,18 +50,24 @@ namespace ProcessTerminator
 
         public ProcessTerminator(string[] args)
         {
-            _arguments = args;
+            // Parse and validate arguments
+            var parser = new Parser(with => { with.IgnoreUnknownArguments = true; with.HelpWriter = Console.Error; });
+            var result = parser.ParseArguments<Options>(args).WithParsed<Options>(opts => _parsedArguments = opts);
 
-            // Validate syntax of arguments
-            if (!ValidateArguments())
+            // Print an error message if the argument syntax is invalid
+            if (result.Tag == ParserResultType.NotParsed)
             {
-                Console.WriteLine("Usage: ProcessTerminator.exe -t <milliseconds> -n <process name> -p <program> [arguments]");
+                Console.WriteLine("Usage: ProcessTerminator.exe -n <process name> [-t <milliseconds>] [-p <program> [arguments]]");
+                Console.WriteLine("Example usage: ProcessTerminator.exe - n Skype - t 1000 - p java \"MyTool - check - verify logfile.out\"");
                 return;
             }
 
             Initialize();
             AddCloseEvent();
-            RunProgram();
+
+            if (_programName != null)
+                RunProgram();
+
             SearchProcess();
             Cleanup();
         }
@@ -60,7 +81,7 @@ namespace ProcessTerminator
 
         private void Cleanup()
         {
-            Console.WriteLine("Shutting down");
+            Console.WriteLine($"{_parsedArguments.Name} has exited, shutting down");
 
             foreach (Process process in _processes)
             {
@@ -81,7 +102,7 @@ namespace ProcessTerminator
                 // Shutdown right away so there are no lingering threads
                 Environment.Exit(-1);
             }
-            catch (Exception)
+            catch
             {
                 // Nothing to do here
             }
@@ -91,14 +112,8 @@ namespace ProcessTerminator
 
         private void Initialize()
         {
-            int.TryParse(_arguments[1], out _timeout);
-
-            if (_timeout <= 0)
-                _timeout = DEFAULT_TIMEOUT;
-
-            _processName = _arguments[3];
-            _programName = _arguments[5];
-            _programArguments = _arguments.Length > 6 ? _arguments[6] : "";
+            _programName = _parsedArguments.Program.FirstOrDefault();
+            _programArguments = string.Join(" ", _parsedArguments.Program.Skip(1));
         }
 
         private void RunProgram()
@@ -108,9 +123,9 @@ namespace ProcessTerminator
             try
             {
                 if (_programArguments == "")
-                    Console.WriteLine("Running {0}", _programName);
+                    Console.WriteLine($"Running {_programName}");
                 else
-                    Console.WriteLine("Running {0} with the following arguments: {1}", _programName, _programArguments);
+                    Console.WriteLine($"Running {_programName} with the following arguments: {_programArguments}");
 
                 proc.StartInfo.Arguments = _programArguments;
                 proc.StartInfo.FileName = _programName;
@@ -123,19 +138,19 @@ namespace ProcessTerminator
             }
             catch (ArgumentException)
             {
-                Console.WriteLine("The file name is empty, contains only white spaces, or contains invalid characters: {0}", _programArguments);
+                Console.WriteLine($"The file name is empty, contains only white spaces, or contains invalid characters: {_programArguments}");
             }
             catch (UnauthorizedAccessException)
             {
-                Console.WriteLine("Access to fileName is denied: {0}", _programArguments);
+                Console.WriteLine($"Access to fileName is denied: {_programArguments}");
             }
             catch (PathTooLongException)
             {
-                Console.WriteLine("The specified path, file name, or both exceed the system-defined maximum length: {0}", _programArguments);
+                Console.WriteLine($"The specified path, file name, or both exceed the system-defined maximum length: {_programArguments}");
             }
             catch (NotSupportedException)
             {
-                Console.WriteLine("File name contains a colon(:) in the middle of the string: {0}", _programArguments);
+                Console.WriteLine($"File name contains a colon(:) in the middle of the string: {_programArguments}");
             }
             catch (InvalidOperationException)
             {
@@ -143,11 +158,11 @@ namespace ProcessTerminator
             }
             catch (Win32Exception)
             {
-                Console.WriteLine("There was an error in opening the associated file: {0}", _programArguments);
+                Console.WriteLine($"There was an error in opening the associated file: {_programArguments}");
             }
             catch (Exception e)
             {
-                Console.WriteLine("Unhandled exception: {0}", e.Message);
+                Console.WriteLine($"Unhandled exception: {e.Message}");
             }
             finally
             {
@@ -157,48 +172,35 @@ namespace ProcessTerminator
 
         private void SearchProcess()
         {
-            Console.WriteLine("Searching for the {0} process", _processName);
+            Console.WriteLine($"Searching for the {_parsedArguments.Name} process every {_parsedArguments.Timeout}ms");
             bool processFound = false;
 
             do
             {
                 // Search for all the processes with the given name
-                _processes = Process.GetProcessesByName(_processName);
+                _processes = Process.GetProcessesByName(_parsedArguments.Name);
                 processFound = _processes.Length != 0;
 
                 // Wait for some time before trying again
                 if (!processFound)
-                    Thread.Sleep(_timeout);
+                    Thread.Sleep(_parsedArguments.Timeout);
             } while (!processFound);
 
             try
             {
-                Console.WriteLine("{0} process found", _processName);
-                Console.WriteLine("Waiting for {0} to exit", _processName);
+                Console.WriteLine($"{_parsedArguments.Name} process found");
+                Console.WriteLine($"Waiting for {_parsedArguments.Name} to exit");
 
                 foreach (Process process in _processes)
                 {
                     //Console.WriteLine(@"{0} | ID: {1}", process.ProcessName, process.Id);
                     process.WaitForExit();
                 }
-
-                Console.WriteLine("{0} has exited", _processName);
             }
-            catch (Exception)
+            catch
             {
                 // Nothing to do here
             }
-        }
-
-        private bool ValidateArguments()
-        {
-            if (_arguments.Length < 6)
-                return false;
-
-            if (_arguments[0] != "-t" && _arguments[2] != "-n" && _arguments[4] != "-p")
-                return false;
-
-            return true;
         }
     }
 }
