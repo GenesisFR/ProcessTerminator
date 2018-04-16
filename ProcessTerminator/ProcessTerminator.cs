@@ -11,7 +11,38 @@ using System.Threading;
 
 namespace ProcessTerminator
 {
-    //TODO add better process closing logic https://github.com/nachmore/toastify/blob/master/Toastify/Spotify.cs (see KillProc(string name))
+    internal class Win32
+    {
+        [DllImport("Kernel32")]
+        internal static extern bool SetConsoleCtrlHandler(EventHandler handler, bool add);
+        internal delegate bool EventHandler(CtrlType sig);
+
+        [DllImport("user32.dll")]
+        internal static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
+        internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        internal static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        internal class Constants
+        {
+            internal const int WM_CLOSE = 0x10;
+            internal const int WM_QUIT  = 0x12;
+        }
+
+        internal enum CtrlType
+        {
+            CTRL_C_EVENT = 0,
+            CTRL_BREAK_EVENT = 1,
+            CTRL_CLOSE_EVENT = 2,
+            CTRL_LOGOFF_EVENT = 5,
+            CTRL_SHUTDOWN_EVENT = 6
+        }
+    }
+
     class Options
     {
         [Option('n', "name", Required = true,
@@ -30,8 +61,7 @@ namespace ProcessTerminator
     class ProcessTerminator
     {
         // Events
-        private delegate bool EventHandler(CtrlType sig);
-        static EventHandler _handler;
+        static Win32.EventHandler _handler;
 
         // Fields
         private Options _parsedArguments;
@@ -39,14 +69,6 @@ namespace ProcessTerminator
         private string _programName;
         private string _programArguments;
 
-        enum CtrlType
-        {
-            CTRL_C_EVENT = 0,
-            CTRL_BREAK_EVENT = 1,
-            CTRL_CLOSE_EVENT = 2,
-            CTRL_LOGOFF_EVENT = 5,
-            CTRL_SHUTDOWN_EVENT = 6
-        }
 
         public ProcessTerminator(string[] args)
         {
@@ -75,24 +97,54 @@ namespace ProcessTerminator
         private void AddCloseEvent()
         {
             // Some boilerplate to react to close window event, CTRL-C, kill, etc
-            _handler += new EventHandler(Handler);
-            SetConsoleCtrlHandler(_handler, true);
+            _handler += new Win32.EventHandler(Handler);
+            Win32.SetConsoleCtrlHandler(_handler, true);
         }
 
         private void Cleanup()
         {
-            Console.WriteLine($"{_parsedArguments.Name} has exited, shutting down");
+            Console.WriteLine("Shutting down");
 
+            // Try to gracefully close all processes
+            foreach (var proc in _processes)
+            {
+                Win32.EnumWindows(delegate (IntPtr hWnd, IntPtr lParam)
+                {
+                    Win32.GetWindowThreadProcessId(hWnd, out uint processId);
+
+                    if (processId == (uint)lParam)
+                    {
+                        Win32.SendMessage(hWnd, Win32.Constants.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                        Win32.SendMessage(hWnd, Win32.Constants.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+                    }
+
+                    return true;
+                },
+                (IntPtr)proc.Id);
+            }
+
+            // Give some time to the processes to close
+            Thread.Sleep(2000);
+
+            _processes = Process.GetProcessesByName(_parsedArguments.Name);
+
+            // They had one chance, now kill them all
             foreach (Process process in _processes)
             {
-                if (!process.HasExited)
-                    process.Kill();
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill();
+                }
+                catch
+                {
+                    // ignore exceptions (usually due to trying to kill non-existant child processes)
+                }
             }
         }
 
-        [DllImport("Kernel32")]
-        private static extern bool SetConsoleCtrlHandler(EventHandler handler, bool add);
-        private bool Handler(CtrlType sig)
+        
+        private bool Handler(Win32.CtrlType sig)
         {
             try
             {
@@ -196,6 +248,8 @@ namespace ProcessTerminator
                     //Console.WriteLine(@"{0} | ID: {1}", process.ProcessName, process.Id);
                     process.WaitForExit();
                 }
+
+                Console.WriteLine($"{_parsedArguments.Name} has exited");
             }
             catch
             {
