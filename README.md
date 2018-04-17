@@ -4,7 +4,7 @@ It was made in C# using .NET 4.6.2, the CommandLineParser NuGet package and Visu
 
 ## Arguments
 
-Usage: ProcessTerminator.exe -n <process name> [-t <milliseconds>] [-p <program> [arguments]]
+Usage: ProcessTerminator.exe -n \<process name\> [-t \<milliseconds\>] [-p \<program\> [arguments]]
 
 -n <process name>: mandatory, name of the process to terminate  
 -t <milliseconds> (default: 5000) : optional, time in milliseconds before searching for the process again  
