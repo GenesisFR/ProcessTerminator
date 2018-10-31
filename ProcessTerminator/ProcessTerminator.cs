@@ -19,7 +19,6 @@ namespace ProcessTerminator
         private Process[] _processes;
         private string _programName;
         private string _programArguments;
-        private bool _isShuttingDown;
 
         public ProcessTerminator()
         {
@@ -42,12 +41,9 @@ namespace ProcessTerminator
 
         private void Cleanup()
         {
-            if (_isShuttingDown)
-                return;
 
             Console.WriteLine("Shutting down");
 
-            _isShuttingDown = true;
             CloseAllProcesses();
 
             // Wait some time for processes to close
@@ -66,10 +62,7 @@ namespace ProcessTerminator
                     Win32.GetWindowThreadProcessId(hWnd, out uint processId);
 
                     if (processId == (uint)lParam)
-                    {
-                        Win32.SendMessage(hWnd, Win32.Constants.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
                         Win32.SendMessage(hWnd, Win32.Constants.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
-                    }
 
                     return true;
                 },
