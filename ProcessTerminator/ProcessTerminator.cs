@@ -116,8 +116,8 @@ namespace ProcessTerminator
             // Print an error message if the argument syntax is invalid
             if (result.Tag == ParserResultType.NotParsed)
             {
-                Console.WriteLine("Usage: ProcessTerminator.exe -n <process name> [-t <milliseconds>] [-p <program> [arguments]]");
-                Console.WriteLine("Example usage: ProcessTerminator.exe - n Skype - t 1000 - p java \"MyTool - check - verify logfile.out\"");
+                Console.WriteLine("Usage: ProcessTerminator.exe -n <process name> [-t <milliseconds>] [-w <milliseconds>] [-p <program> [arguments]]");
+                Console.WriteLine("Example usage: ProcessTerminator.exe - n Skype - t 1000 -w 2000 -p java \"MyTool - check - verify logfile.out\"");
                 return false;
             }
 
@@ -185,9 +185,12 @@ namespace ProcessTerminator
 
     private void SearchProcess()
         {
-            Console.WriteLine($"Searching for the {_parsedArguments.Name} process every {_parsedArguments.Timeout}ms");
+            Console.WriteLine($"Waiting for {_parsedArguments.Wait}ms before searching for the {_parsedArguments.Name} process");
 
             bool processFound = false;
+            Thread.Sleep(_parsedArguments.Wait);
+
+            Console.WriteLine($"Searching for the {_parsedArguments.Name} process every {_parsedArguments.Timeout}ms");
 
             do
             {

@@ -6,10 +6,11 @@ It was made in C# using .NET 4.6.2, the CommandLineParser NuGet package and Visu
 
 Usage: ProcessTerminator.exe -n \<process name\> [-t \<milliseconds\>] [-p \<program\> [arguments]]
 
--n <process name>: mandatory, name of the process to terminate  
+-n <process name>: mandatory, name of the process (without extension) to terminate  
 -t <milliseconds> (default: 5000) : optional, time in milliseconds before searching for the process again  
+-w <milliseconds> (default: 0) : optional, time to wait in milliseconds before starting to search for the process  
 -p <program> [arguments]: optional, path to a program to run at startup, with optional arguments
 
 Example:
 
-ProcessTerminator.exe -n Skype -t 1000 -p java "MyTool -check -verify logfile.out"
+ProcessTerminator.exe -n Skype -t 1000 -w 2000 -p java "MyTool -check -verify logfile.out"
